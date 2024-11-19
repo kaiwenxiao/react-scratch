@@ -1,8 +1,10 @@
-import { WorkTags } from "./workTags";
-import { Key, Props, Ref } from "../../shared/ReactTypes";
-import { Flags, NoFlags } from "./fiberFlags";
-import { Effect } from "./fiberHooks";
-import { Container } from "hostConfig";
+import {WorkTags} from "./workTags";
+import {Key, Props, Ref, Wakeable} from "../../shared/ReactTypes";
+import {Flags, NoFlags} from "./fiberFlags";
+import {Effect} from "./fiberHooks";
+import {Container} from "hostConfig";
+import {Lane, Lanes, NoLane, NoLanes} from "./fiberLanes";
+import {CallbackNode} from "scheduler";
 
 export interface OffscreenProps {
   mode: "visible" | "hidden";
@@ -20,7 +22,7 @@ export class FiberNode {
   return: FiberNode | null;
   sibling: FiberNode | null;
   child: FiberNode | null;
-  oarent: FiberNode | null;
+  parent: FiberNode | null;
   index: number;
 
   memorizedProps: Props | null;
@@ -41,6 +43,7 @@ export class FiberNode {
     this.return = null; // parent fiberNode
     this.sibling = null;
     this.child = null;
+    this.parent = null;
     this.index = 0;
 
     this.ref = null;
@@ -68,4 +71,67 @@ export class FiberRootNode {
   current: FiberNode;
   finishedWork: FiberNode | null;
   pendingLanes: Lanes;
+  finishedLane: Lane;
+  pendingPassiveEffect: PendingPassiveEffects;
+
+  callbackNode: CallbackNode | null;
+  callbackPriority: Lane;
+
+  pingCache: WeakMap<Wakeable<any>, Set<Lane>> | null;
+
+  suspendedLanes: Lanes;
+  pingedLanes: Lanes;
+
+  constructor(container: Container, hostRootFiber: FiberNode) {
+    this.container = container;
+    this.current = hostRootFiber;
+    hostRootFiber.stateNode = this;
+    this.finishedWork = null;
+
+    this.pendingLanes = NoLanes;
+    this.suspendedLanes = NoLanes;
+    this.pingedLanes = NoLanes;
+
+    this.finishedLane = NoLanes;
+
+    this.callbackNode = null;
+    this.callbackPriority = NoLane;
+
+    this.pendingPassiveEffect = {
+      unmount: [],
+      update: []
+    };
+
+    this.pingCache = null;
+  }
+}
+
+export const createWorkInProgress = (
+  current: FiberNode,
+  pendingProps: Props
+): FiberNode => {
+  let wip = current.alternate;
+
+  if (wip === null) {
+    // mount
+    wip = new FiberNode(current.tag, pendingProps, current.key);
+    wip.stateNode = current.stateNode;
+    wip.alternate = current;
+    current.alternate = wip;
+  } else {
+    // update
+    wip.pendingProps = pendingProps;
+    wip.flags = NoFlags;
+
+    wip.subtreeFlags = NoFlags;
+    wip.deletions = null;
+  }
+  wip.type = current.type;
+  wip.updateQueue = current.updateQueue;
+  wip.child = current.child;
+  wip.memorizedState = current.memorizedState;
+  wip.ref = current.ref;
+  wip.memorizedProps = current.memorizedProps;
+
+  return wip;
 }
